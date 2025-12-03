@@ -1,0 +1,30 @@
+[mysqld]
+# Server Configuration
+server-id = 1
+bind-address = 0.0.0.0
+port = 3306
+
+# Replication Configuration
+log-bin = mysql-bin
+binlog-format = ROW
+gtid-mode = ON
+enforce-gtid-consistency = ON
+relay-log = mysql-relay-bin
+relay-log-recovery = 1
+
+# Group Replication Configuration
+# Note: Group Replication settings will be configured manually after MySQL initialization
+# via the initialization scripts. These variables require the plugin to be loaded first.
+
+# Storage Engine Configuration
+default-storage-engine = InnoDB
+
+# Performance Tuning
+innodb_buffer_pool_size = 1G
+innodb_log_file_size = 256M
+max_connections = 200
+max_allowed_packet = 256M
+
+# LineairDB Support (if plugin is available)
+# plugin-load-add = ha_lineairdb.so
+

@@ -1,0 +1,34 @@
+# Data directories (contain MySQL data files)
+data/
+logs/
+
+# Docker volumes
+*.log
+
+# Environment files
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# MySQL temporary files
+*.pid
+*.sock
+
+# Backup files
+*.sql.gz
+*.dump
