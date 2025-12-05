@@ -22,7 +22,7 @@ This directory contains test scripts for the MySQL Cluster setup.
 
 ### Execute SQL File Directly
 ```bash
-mysql -h 127.0.0.1 -P 6446 --protocol=TCP -u root -prootpassword < test-sql.sql
+mysql -h 127.0.0.1 -P 6446 --protocol=TCP -u root -pkamo < test-sql.sql
 ```
 
 ## Test Coverage

@@ -84,7 +84,7 @@ echo ""
 
 # Scripts
 echo "9. Scripts:"
-SCRIPT_FILES=("setup.sh" "scripts/01-init-cluster.sh" "scripts/02-join-secondary.sh" "scripts/switch-to-lineairdb.sh" "scripts/performance-test.sh")
+SCRIPT_FILES=("setup.sh" "scripts/setup-cluster-mysqlshell-8.0.32.sh" "scripts/switch-to-lineairdb.sh" "scripts/performance-test.sh" "build-lineairdb-image.sh")
 for script in "${SCRIPT_FILES[@]}"; do
     if [ -f "$script" ]; then
         if [ -x "$script" ]; then

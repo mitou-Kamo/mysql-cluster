@@ -18,7 +18,7 @@ fi
 
 echo ""
 echo "Step 1: Stopping and removing containers..."
-cd /home/tonyli_15/mysql-server
+cd "$(dirname "$0")/.."
 sudo docker-compose down -v
 
 echo ""
