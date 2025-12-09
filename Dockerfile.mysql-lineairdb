@@ -1,0 +1,64 @@
+# Custom MySQL 8.0.32 image with LineairDB support
+# Based on Ubuntu 22.04 for glibc 2.35 compatibility
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MYSQL_ROOT_PASSWORD=kamo
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    libaio1 \
+    libncurses5 \
+    libnuma1 \
+    libssl3 \
+    libtinfo6 \
+    libatomic1 \
+    libjemalloc2 \
+    libstdc++6 \
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create mysql user and group
+RUN groupadd -r mysql && useradd -r -g mysql mysql
+
+# Create necessary directories
+RUN mkdir -p /var/lib/mysql /var/run/mysqld /var/log/mysql /etc/mysql/conf.d /usr/lib/plugin /usr/lib/private \
+    && chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql
+
+# Copy MySQL binaries (these will be provided via build context)
+COPY bin/mysqld /usr/sbin/mysqld
+COPY bin/mysql /usr/bin/mysql
+COPY bin/mysqladmin /usr/bin/mysqladmin
+COPY bin/mysqlbinlog /usr/bin/mysqlbinlog
+COPY bin/mysqldump /usr/bin/mysqldump
+COPY bin/mysqlcheck /usr/bin/mysqlcheck
+COPY bin/mysqlimport /usr/bin/mysqlimport
+COPY bin/mysql_secure_installation /usr/bin/mysql_secure_installation
+COPY bin/mysql_upgrade /usr/bin/mysql_upgrade
+COPY bin/mysql_tzinfo_to_sql /usr/bin/mysql_tzinfo_to_sql
+
+# Copy plugin files including LineairDB
+COPY plugins/ /usr/lib/plugin/
+
+# Copy library dependencies (protobuf, etc.)
+COPY lib/ /usr/lib/
+
+# Copy share directory (character sets, error messages, etc.)
+COPY share/ /usr/share/mysql/
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Set permissions and update library cache
+RUN chmod +x /usr/sbin/mysqld /usr/bin/mysql /usr/bin/mysqladmin /usr/bin/mysqlbinlog \
+    /usr/bin/mysqldump /usr/bin/mysqlcheck /usr/bin/mysqlimport \
+    /usr/bin/mysql_secure_installation /usr/bin/mysql_upgrade /usr/bin/mysql_tzinfo_to_sql \
+    && ldconfig
+
+EXPOSE 3306 33060
+
+VOLUME /var/lib/mysql
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["mysqld"]
