@@ -40,15 +40,15 @@ cp -r "$BUILD_DIR/plugin_output_directory/"* "$BUILD_CONTEXT/plugins/"
 
 echo "Copying library dependencies..."
 mkdir -p "$BUILD_CONTEXT/lib"
-# Copy protobuf and other required libraries
-cp "$BUILD_DIR/library_output_directory/libprotobuf-lite.so.3.19.4" "$BUILD_CONTEXT/lib/"
-cp "$BUILD_DIR/library_output_directory/libprotobuf.so.3.19.4" "$BUILD_CONTEXT/lib/"
-cp "$BUILD_DIR/library_output_directory/libmysqlclient.so.21.2.32" "$BUILD_CONTEXT/lib/"
+# Copy protobuf and other required libraries (protobuf version updated to 24.4.0 for MySQL 8.0.43)
+cp "$BUILD_DIR/library_output_directory/libprotobuf-lite.so.24.4.0" "$BUILD_CONTEXT/lib/"
+cp "$BUILD_DIR/library_output_directory/libprotobuf.so.24.4.0" "$BUILD_CONTEXT/lib/"
+cp "$BUILD_DIR/library_output_directory/libmysqlclient.so.21.2.43" "$BUILD_CONTEXT/lib/"
 # Create symlinks
 cd "$BUILD_CONTEXT/lib"
-ln -sf libprotobuf-lite.so.3.19.4 libprotobuf-lite.so
-ln -sf libprotobuf.so.3.19.4 libprotobuf.so
-ln -sf libmysqlclient.so.21.2.32 libmysqlclient.so.21
+ln -sf libprotobuf-lite.so.24.4.0 libprotobuf-lite.so
+ln -sf libprotobuf.so.24.4.0 libprotobuf.so
+ln -sf libmysqlclient.so.21.2.43 libmysqlclient.so.21
 ln -sf libmysqlclient.so.21 libmysqlclient.so
 cd "$SCRIPT_DIR"
 
@@ -67,14 +67,14 @@ cp "$SCRIPT_DIR/docker-entrypoint.sh" "$BUILD_CONTEXT/"
 
 echo "Building Docker image..."
 cd "$BUILD_CONTEXT"
-sudo docker build -t mysql-lineairdb:8.0.32 .
+sudo docker build -t mysql-lineairdb:8.0.43 .
 
 echo ""
 echo "=== Build Complete ==="
-echo "Docker image: mysql-lineairdb:8.0.32"
+echo "Docker image: mysql-lineairdb:8.0.43"
 echo ""
 echo "To verify the image:"
-echo "  sudo docker run --rm mysql-lineairdb:8.0.32 mysqld --version"
+echo "  sudo docker run --rm mysql-lineairdb:8.0.43 mysqld --version"
 echo ""
 echo "To use with the cluster, run:"
 echo "  cd $SCRIPT_DIR"

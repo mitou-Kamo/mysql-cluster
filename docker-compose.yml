@@ -2,7 +2,7 @@ version: '3.3'
 
 services:
   mysql-primary:
-    image: mysql:8.0.32
+    image: mysql:8.0.43
     container_name: mysql-primary
     hostname: mysql-primary
     environment:
@@ -27,7 +27,7 @@ services:
       retries: 5
 
   mysql-secondary-1:
-    image: mysql:8.0.32
+    image: mysql:8.0.43
     container_name: mysql-secondary-1
     hostname: mysql-secondary-1
     environment:
@@ -54,7 +54,7 @@ services:
       retries: 5
 
   mysql-secondary-2:
-    image: mysql:8.0.32
+    image: mysql:8.0.43
     container_name: mysql-secondary-2
     hostname: mysql-secondary-2
     environment:
@@ -81,7 +81,8 @@ services:
       retries: 5
 
   mysql-router:
-    image: mysql/mysql-router:8.0.32
+    # Using 'latest' tag - currently 8.0.32, will auto-update when newer versions are available
+    image: mysql/mysql-router:latest
     container_name: mysql-router
     hostname: mysql-router
     entrypoint: ["mysqlrouter"]

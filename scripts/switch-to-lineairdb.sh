@@ -16,8 +16,8 @@ SELECT PLUGIN_NAME, PLUGIN_STATUS
 FROM INFORMATION_SCHEMA.PLUGINS 
 WHERE PLUGIN_NAME LIKE '%lineair%';
 
--- Install LineairDB plugin if available
--- INSTALL PLUGIN lineairdb SONAME 'ha_lineairdb.so';
+-- Install LineairDB plugin if available (run install-lineairdb-plugin.sh first)
+-- INSTALL PLUGIN lineairdb SONAME 'ha_lineairdb_storage_engine.so';
 
 -- Set default storage engine to LineairDB
 SET GLOBAL default_storage_engine = 'LineairDB';

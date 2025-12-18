@@ -34,10 +34,11 @@ mkdir -p logs
 # Set permissions
 chmod +x scripts/*.sh 2>/dev/null || true
 
-# Pull MySQL 8.0.32 image
-echo "Pulling MySQL 8.0.32 image..."
-docker pull mysql:8.0.32
-docker pull mysql/mysql-router:8.0.32
+# Pull MySQL 8.0.43 image
+echo "Pulling MySQL 8.0.43 image..."
+docker pull mysql:8.0.43
+# Using 'latest' tag for MySQL Router (currently 8.0.32, compatible with Server 8.0.43)
+docker pull mysql/mysql-router:latest
 
 # Start containers
 echo "Starting MySQL cluster containers..."
@@ -53,7 +54,7 @@ if ! command -v mysqlsh &> /dev/null; then
     echo "⚠️  WARNING: MySQL Shell is not installed!"
     echo "   Containers are running, but cluster setup requires MySQL Shell."
     echo "   Install MySQL Shell and then run:"
-    echo "     ./scripts/setup-cluster-mysqlshell-8.0.32.sh"
+    echo "     ./scripts/setup-cluster-mysqlshell-8.0.43.sh"
     echo ""
     echo "   Or install MySQL Shell:"
     echo "     Ubuntu/Debian: sudo apt-get install mysql-shell"
@@ -72,7 +73,7 @@ else
     fi
     
     # Run cluster setup
-    ./scripts/setup-cluster-mysqlshell-8.0.32.sh
+    ./scripts/setup-cluster-mysqlshell-8.0.43.sh
 fi
 
 echo "=========================================="

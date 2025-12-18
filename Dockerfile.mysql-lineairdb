@@ -1,4 +1,4 @@
-# Custom MySQL 8.0.32 image with LineairDB support
+# Custom MySQL 8.0.43 image with LineairDB support
 # Based on Ubuntu 22.04 for glibc 2.35 compatibility
 FROM ubuntu:22.04
 

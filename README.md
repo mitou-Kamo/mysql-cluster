@@ -1,13 +1,13 @@
 # MySQL Cluster with LineairDB Storage Engine
 
-This repository contains a complete setup for a MySQL 8.0.32 cluster with 4 nodes (1 primary, 2 secondary, 1 router) using Docker containers. The cluster is configured to support switching from InnoDB to LineairDB storage engine for performance testing.
+This repository contains a complete setup for a MySQL 8.0.43 cluster with 4 nodes (1 primary, 2 secondary, 1 router) using Docker containers. The cluster is configured to support switching from InnoDB to LineairDB storage engine for performance testing.
 
 ## System Requirements
 
 - **OS**: Linux (Ubuntu 20.04+ recommended)
 - **Docker**: Version 20.10+
 - **Docker Compose**: Version 1.25+
-- **MySQL Shell**: Version 8.0.32 (required for cluster setup)
+- **MySQL Shell**: Version 8.0.43 (required for cluster setup)
 - **Disk Space**: Minimum 10GB free space
 - **Memory**: Minimum 4GB RAM (8GB+ recommended)
 
@@ -102,7 +102,7 @@ mysqlsh root:kamo@127.0.0.1:33061 --js -e "dba.getCluster('kamo').status()"
 
 ### Key Configuration Parameters
 
-- **MySQL Version**: 8.0.32 (required for LineairDB support)
+- **MySQL Version**: 8.0.43 (required for LineairDB support)
 - **Group Replication**: Enabled
 - **GTID**: Enabled
 - **Binary Logging**: ROW format
@@ -116,7 +116,7 @@ mysqlsh root:kamo@127.0.0.1:33061 --js -e "dba.getCluster('kamo').status()"
 docker-compose up -d
 ```
 
-Uses official `mysql:8.0.32` image.
+Uses official `mysql:8.0.43` image.
 
 ### MySQL Cluster with LineairDB
 
@@ -124,7 +124,7 @@ Uses official `mysql:8.0.32` image.
 docker-compose -f docker-compose-lineairdb.yml up -d
 ```
 
-Uses custom `mysql-lineairdb:8.0.32` image with LineairDB storage engine support.
+Uses custom `mysql-lineairdb:8.0.43` image with LineairDB storage engine support.
 
 ## LineairDB Support
 
@@ -136,7 +136,7 @@ The pre-built LineairDB storage engine plugin is included in this repository:
 plugins/ha_lineairdb_storage_engine.so
 ```
 
-This plugin was built from the [LineairDB storage engine](https://github.com/lineairdb/lineairdb-storage-engine) project and is compatible with MySQL 8.0.32.
+This plugin was built from the [LineairDB storage engine](https://github.com/Tatzhiro/LineairDB-storage-engine) project and is compatible with MySQL 8.0.43.
 
 ### Building the LineairDB Docker Image
 
@@ -152,7 +152,18 @@ The build script will:
 - Copy MySQL binaries from the build directory
 - Copy LineairDB plugin (`ha_lineairdb_storage_engine.so`)
 - Copy required libraries (protobuf, etc.)
-- Build a Docker image `mysql-lineairdb:8.0.32`
+- Build a Docker image `mysql-lineairdb:8.0.43`
+
+### Install LineairDB Plugin on All Nodes
+
+```bash
+./scripts/install-lineairdb-plugin.sh
+```
+
+This script will:
+- Install the LineairDB storage engine plugin on all cluster nodes (primary and secondaries)
+- Verify the plugin is active on each node
+- Display the status of LineairDB engine availability
 
 ### Switch Storage Engine
 
@@ -390,7 +401,7 @@ docker exec -it mysql-primary mysql -uroot -pkamo -e "SHOW ENGINES;"
 
 ### LineairDB Plugin Not Found
 
-1. Verify MySQL version is 8.0.32: `SELECT VERSION();`
+1. Verify MySQL version is 8.0.43: `SELECT VERSION();`
 2. Check if plugin file exists: `ls docker-build-context/plugins/`
 3. Rebuild the LineairDB image: `./build-lineairdb-image.sh`
 4. Check plugin installation: `SHOW PLUGINS;`
@@ -424,7 +435,8 @@ mysql-cluster/
 │   ├── secondary2.cnf              # Secondary node 2 config
 │   └── router.conf                 # Router config
 ├── scripts/                        # Utility scripts
-│   ├── setup-cluster-mysqlshell-8.0.32.sh  # Cluster setup using MySQL Shell
+│   ├── setup-cluster-mysqlshell-8.0.43.sh  # Cluster setup using MySQL Shell
+│   ├── install-lineairdb-plugin.sh # Install LineairDB plugin on all nodes
 │   ├── switch-to-lineairdb.sh      # Storage engine switch
 │   └── performance-test.sh         # Performance testing
 ├── cleanup/                        # Cleanup scripts
@@ -452,22 +464,25 @@ mysql-cluster/
 
 ## Notes
 
-1. **MySQL 8.0.32**: This specific version is required for LineairDB support.
+1. **MySQL 8.0.43**: This specific version is required for LineairDB support.
 
-2. **LineairDB Plugin**: The pre-built LineairDB storage engine plugin is included at `plugins/ha_lineairdb_storage_engine.so`. You can also rebuild it from the [LineairDB storage engine](https://github.com/lineairdb/lineairdb-storage-engine) source.
+2. **MySQL Router Version**: The cluster uses the `latest` MySQL Router tag from [Docker Hub](https://hub.docker.com/r/mysql/mysql-router/tags) (currently 8.0.32), which is compatible with MySQL Server 8.0.43.
 
-3. **Data Persistence**: Data is stored in `./data/` directories. To reset the cluster, use `./cleanup/cleanup-all.sh`.
+3. **LineairDB Plugin**: The pre-built LineairDB storage engine plugin is included at `plugins/ha_lineairdb_storage_engine.so`. You can also rebuild it from the [LineairDB storage engine](https://github.com/Tatzhiro/LineairDB-storage-engine) source.
 
-4. **Network**: Containers communicate via a Docker bridge network (172.20.0.0/16).
+4. **Data Persistence**: Data is stored in `./data/` directories. To reset the cluster, use `./cleanup/cleanup-all.sh`.
 
-5. **Security**: Default password is `kamo` for convenience. **Change it in production!**
+5. **Network**: Containers communicate via a Docker bridge network (172.20.0.0/16).
 
-6. **Cluster Name**: The InnoDB Cluster is named `kamo`.
+6. **Security**: Default password is `kamo` for convenience. **Change it in production!**
 
-7. **MySQL Shell Required**: The cluster setup requires MySQL Shell to be installed on the host machine.
+7. **Cluster Name**: The InnoDB Cluster is named `kamo`.
+
+8. **MySQL Shell Required**: The cluster setup requires MySQL Shell to be installed on the host machine.
 
 ## Version History
 
+- **v1.1.0**: Upgraded MySQL from 8.0.32 to 8.0.43 for compatibility with LineairDB storage engine
 - **v1.0.1**: Added pre-built LineairDB plugin to repository (`plugins/ha_lineairdb_storage_engine.so`)
 - **v1.0.0**: Initial setup with MySQL 8.0.32, 4-node cluster, InnoDB to LineairDB switching capability
 
