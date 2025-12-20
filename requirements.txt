@@ -1,0 +1,12 @@
+# MySQL Cluster Bridge Dependencies
+# For LineairDB Storage Engine Integration
+
+# YAML parsing for docker-compose generation
+PyYAML>=6.0
+
+# Optional: SSH connections for remote nodes
+# paramiko>=2.11.0
+
+# Optional: Docker SDK for Python
+# docker>=6.0.0
+

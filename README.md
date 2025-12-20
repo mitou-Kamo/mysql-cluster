@@ -1,241 +1,358 @@
-# MySQL Cluster with LineairDB Storage Engine
+# MySQL Cluster Bridge for LineairDB Storage Engine
 
-This repository contains a complete setup for a MySQL 8.0.43 cluster with 4 nodes (1 primary, 2 secondary, 1 router) using Docker containers. The cluster is configured to support switching from InnoDB to LineairDB storage engine for performance testing.
+A bridge interface for MySQL Group Replication that supports a local primary node (running LineairDB storage engine) with flexible secondary nodes (remote machines or Docker containers).
 
-## System Requirements
+This repository is designed to be used as a submodule of [LineairDB-storage-engine](https://github.com/Tatzhiro/LineairDB-storage-engine) for distributed group replication.
 
-- **OS**: Linux (Ubuntu 20.04+ recommended)
-- **Docker**: Version 20.10+
-- **Docker Compose**: Version 1.25+
-- **MySQL Shell**: Version 8.0.43 (required for cluster setup)
-- **Disk Space**: Minimum 10GB free space
-- **Memory**: Minimum 4GB RAM (8GB+ recommended)
+## Overview
 
-### Docker Permissions
+The MySQL Cluster Bridge provides:
 
-If you encounter permission errors with Docker, you may need to:
-1. Add your user to the docker group: `sudo usermod -aG docker $USER`
-2. Log out and log back in, or run: `newgrp docker`
-3. Alternatively, use `sudo` with docker commands
+- **Primary Node**: Local MySQL installation (via systemctl or binary) where LineairDB storage engine runs
+- **Secondary Nodes**: Flexible deployment options:
+  - Remote machines (if IP addresses are provided)
+  - Docker containers (automatically created if remote machines not available)
+- **Auto-scaling**: Create any number of secondary nodes (e.g., 100 Docker containers)
+- **Plugin Installation**: Automatically install LineairDB storage engine plugin on all nodes
+- **Bridge Interface**: Clean abstraction for LineairDB replication integration
 
 ## Architecture
 
-The cluster consists of:
-
-1. **Primary Node** (mysql-primary)
-   - Port: 33061
-   - IP: 172.20.0.10
-   - Role: Primary/Write node
-
-2. **Secondary Node 1** (mysql-secondary-1)
-   - Port: 33062
-   - IP: 172.20.0.11
-   - Role: Secondary/Read replica
-
-3. **Secondary Node 2** (mysql-secondary-2)
-   - Port: 33063
-   - IP: 172.20.0.12
-   - Role: Secondary/Read replica
-
-4. **Router Node** (mysql-router)
-   - Read/Write Port: 6446
-   - Read-Only Port: 6447
-   - X Protocol RW: 6448
-   - X Protocol RO: 6449
-   - IP: 172.20.0.20
-   - Role: Load balancer and connection router
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        LineairDB Storage Engine                       │
+│                    (LineairDB-storage-engine/repl)                    │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      MySQL Cluster Bridge                            │
+│                    (this repository)                                 │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+            ┌───────────────────────┼───────────────────────┐
+            ▼                       ▼                       ▼
+    ┌───────────────┐       ┌───────────────┐       ┌───────────────┐
+    │   Primary     │       │  Secondary    │       │  Secondary    │
+    │   (Local)     │◄─────►│  (Remote or   │◄─────►│  (Docker)     │
+    │   MySQL +     │       │   Docker)     │       │               │
+    │   LineairDB   │       └───────────────┘       └───────────────┘
+    └───────────────┘
+         │
+         ▼
+    systemctl or
+    binary MySQL
+```
 
 ## Quick Start
 
-### 1. Check Environment
+### Prerequisites
+
+- Python 3.8+
+- MySQL 8.0.43+ (installed locally via systemctl or binary)
+- MySQL Shell (mysqlsh)
+- Docker and Docker Compose (for container secondaries)
+
+### Installation
 
 ```bash
-./check-environment.sh
+# Clone the repository
+git clone https://github.com/your-repo/mysql-cluster.git
+cd mysql-cluster
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-This will verify:
-- System information
-- Disk space and memory
-- Docker and Docker Compose installation
-- Port availability
-- Required directories and files
+### Create a Cluster
 
-### 2. Run Setup Script
+#### With Docker Secondaries (Easiest)
 
 ```bash
-./setup.sh
+# Create a cluster with 5 Docker secondary nodes
+./setup_bridge.py --secondaries 5 --start
 ```
 
-This script will:
-- Check prerequisites (Docker, Docker Compose, MySQL Shell)
-- Create necessary directories
-- Pull MySQL 8.0.32 and MySQL Router images
-- Start all containers
-- Set up the InnoDB Cluster using MySQL Shell's `dba.configureInstance()` and `cluster.addInstance()`
-
-### 3. Verify Cluster Status
+#### With Remote Machines
 
 ```bash
-./check-cluster-status.sh
+# Create a cluster with remote machines
+./setup_bridge.py --secondaries 3 \
+    --remote-host 192.168.1.10:mysql \
+    --remote-host 192.168.1.11:mysql \
+    --start
+
+# Note: If fewer remote hosts are provided than secondaries,
+# remaining nodes will be Docker containers
 ```
 
-Or manually check:
+#### With Local Binary MySQL
 
 ```bash
-docker exec -it mysql-primary mysql -uroot -pkamo -e "SELECT * FROM performance_schema.replication_group_members;"
+# Use a custom MySQL binary installation
+./setup_bridge.py --secondaries 2 \
+    --primary-type binary \
+    --mysql-bin-dir /opt/mysql/bin \
+    --start
 ```
 
-Or using MySQL Shell:
+### CLI Commands
 
 ```bash
-mysqlsh root:kamo@127.0.0.1:33061 --js -e "dba.getCluster('kamo').status()"
+# Create cluster configuration
+python -m bridge.cli create --secondaries 5
+
+# Set up infrastructure
+python -m bridge.cli setup
+
+# Start the cluster
+python -m bridge.cli start
+
+# Check cluster status
+python -m bridge.cli status
+python -m bridge.cli status --json  # JSON output
+
+# Scale secondary nodes
+python -m bridge.cli scale 10
+
+# Add a remote secondary
+python -m bridge.cli add-secondary 192.168.1.12 --ssh-user mysql
+
+# Remove a secondary node
+python -m bridge.cli remove-secondary 3
+
+# Check LineairDB availability
+python -m bridge.cli check-lineairdb
+
+# Install LineairDB plugin on all nodes
+python -m bridge.cli install-lineairdb
+python -m bridge.cli install-lineairdb --plugin-path /path/to/ha_lineairdb.so
+
+# Stop the cluster
+python -m bridge.cli stop
+
+# Clean up resources
+python -m bridge.cli cleanup --all
+```
+
+## Python API
+
+The bridge provides a clean Python API for LineairDB integration:
+
+```python
+from bridge import ClusterBridge, create_cluster, load_cluster
+
+# Create a new cluster
+cluster = create_cluster(num_secondaries=10)
+cluster.start()
+
+# Or with remote machines
+cluster = create_cluster(
+    num_secondaries=5,
+    remote_hosts=[
+        {"host": "192.168.1.10", "ssh_user": "mysql"},
+        {"host": "192.168.1.11", "ssh_user": "mysql"},
+    ]
+)
+# This creates 2 remote + 3 Docker secondary nodes
+cluster.start()
+
+# Load existing cluster
+cluster = load_cluster()
+status = cluster.get_status()
+print(status)
+
+# Scale the cluster
+cluster.scale(20)
+
+# Add remote secondary on-the-fly
+cluster.add_remote_secondary("192.168.1.12", "mysql")
+
+# Check LineairDB availability
+lineairdb_status = cluster.check_lineairdb()
+
+# Install LineairDB plugin on all nodes
+# Auto-detects plugin location when used as submodule of LineairDB-storage-engine
+cluster.install_lineairdb_plugin()
+
+# Or specify plugin path explicitly
+cluster.install_lineairdb_plugin("/path/to/LineairDB-storage-engine/build/ha_lineairdb.so")
 ```
 
 ## Configuration
 
-### MySQL Configuration Files
+### Cluster Configuration File
+
+The cluster configuration is stored in `config/cluster.json`:
+
+```json
+{
+  "cluster_name": "lineairdb_cluster",
+  "mysql_version": "8.0.43",
+  "mysql_root_password": "kamo",
+  "primary": {
+    "node_id": 1,
+    "hostname": "primary",
+    "node_type": "local_systemctl",
+    "host": "127.0.0.1",
+    "port": 3306
+  },
+  "secondaries": [
+    {
+      "node_id": 2,
+      "hostname": "mysql-secondary-1",
+      "node_type": "docker_container",
+      "host": "127.0.0.1",
+      "port": 33062,
+      "docker_ip": "172.20.0.12"
+    }
+  ]
+}
+```
+
+### MySQL Configuration
+
+MySQL configuration files are generated in the `config/` directory:
 
 - `config/primary.cnf` - Primary node configuration
 - `config/secondary1.cnf` - Secondary node 1 configuration
-- `config/secondary2.cnf` - Secondary node 2 configuration
-- `config/router.conf` - MySQL Router configuration
+- etc.
 
-### Key Configuration Parameters
+## Integration with LineairDB-storage-engine
 
-- **MySQL Version**: 8.0.43 (required for LineairDB support)
-- **Group Replication**: Enabled
-- **GTID**: Enabled
-- **Binary Logging**: ROW format
-- **Default Storage Engine**: InnoDB (can be switched to LineairDB)
-
-## Docker Compose Files
-
-### Standard MySQL Cluster
+This repository is designed to be used as a submodule:
 
 ```bash
-docker-compose up -d
+cd LineairDB-storage-engine
+git submodule add https://github.com/your-repo/mysql-cluster.git cluster
+
+# In your replication code (LineairDB-storage-engine/repl)
+from cluster.bridge import ClusterBridge, load_cluster
+
+# Initialize cluster
+cluster = load_cluster()
+
+# Use cluster for replication
+primary_status = cluster.get_status()["primary"]
+if primary_status["running"]:
+    # Primary is ready for LineairDB operations
+    pass
 ```
 
-Uses official `mysql:8.0.43` image.
+## Node Types
 
-### MySQL Cluster with LineairDB
+### Primary Node
+
+The primary node runs on the local machine and can be:
+
+1. **LOCAL_SYSTEMCTL**: MySQL managed by systemd
+   - Uses `sudo systemctl start/stop mysql`
+   - Requires MySQL to be installed via package manager
+
+2. **LOCAL_BINARY**: MySQL from binary installation
+   - Uses direct mysqld invocation
+   - Specify `--mysql-bin-dir` for custom installation path
+
+### Secondary Nodes
+
+Secondary nodes can be:
+
+1. **REMOTE_MACHINE**: A remote server with MySQL installed
+   - Requires SSH access
+   - MySQL must be pre-installed and configured
+   - Managed via SSH commands
+
+2. **DOCKER_CONTAINER**: Local Docker container
+   - Automatically created and managed
+   - Uses official MySQL 8.0.43 image
+   - Good for testing and development
+
+## LineairDB Plugin Installation
+
+After cluster creation, you can install the LineairDB storage engine plugin on all nodes:
+
+### Via CLI
 
 ```bash
-docker-compose -f docker-compose-lineairdb.yml up -d
+# Auto-detect plugin location (works when this repo is a submodule)
+python -m bridge.cli install-lineairdb
+
+# Or specify the plugin path explicitly
+python -m bridge.cli install-lineairdb --plugin-path /path/to/ha_lineairdb.so
 ```
 
-Uses custom `mysql-lineairdb:8.0.43` image with LineairDB storage engine support.
+### Via Python API
 
-## LineairDB Support
+```python
+from bridge import load_cluster
 
-### LineairDB Plugin Location
+cluster = load_cluster()
 
-The pre-built LineairDB storage engine plugin is included in this repository:
+# Auto-detect plugin location
+result = cluster.install_lineairdb_plugin()
 
-```
-plugins/ha_lineairdb_storage_engine.so
-```
+# Or specify explicitly
+result = cluster.install_lineairdb_plugin(
+    "/path/to/LineairDB-storage-engine/build/ha_lineairdb.so"
+)
 
-This plugin was built from the [LineairDB storage engine](https://github.com/Tatzhiro/LineairDB-storage-engine) project and is compatible with MySQL 8.0.43.
-
-### Building the LineairDB Docker Image
-
-Before using the LineairDB compose file, you need to build the custom Docker image:
-
-```bash
-./build-lineairdb-image.sh
+print(result["summary"])  # e.g., "Installed on 5/5 nodes"
 ```
 
-**Note**: The build script uses the plugin from the build directory at `/work/LineairDB-storage-engine/build`. The pre-built plugin in `plugins/` is provided for convenience.
+### Plugin Auto-Detection
 
-The build script will:
-- Copy MySQL binaries from the build directory
-- Copy LineairDB plugin (`ha_lineairdb_storage_engine.so`)
-- Copy required libraries (protobuf, etc.)
-- Build a Docker image `mysql-lineairdb:8.0.43`
+When used as a submodule of LineairDB-storage-engine, the bridge automatically searches for the plugin in:
 
-### Install LineairDB Plugin on All Nodes
+1. `../build/ha_lineairdb.so` (parent directory build folder)
+2. `../build/Release/ha_lineairdb.so`
+3. `../build/Debug/ha_lineairdb.so`
+4. `../plugins/ha_lineairdb.so`
+5. System MySQL plugin directories
 
-```bash
-./scripts/install-lineairdb-plugin.sh
+### What the Installation Does
+
+1. **For Primary Node**: Copies the plugin to `/usr/lib/mysql/plugin/` and runs `INSTALL PLUGIN`
+2. **For Docker Containers**: Uses `docker cp` to copy the plugin and installs via MySQL
+3. **For Remote Machines**: Uses `scp` to copy and SSH to install via MySQL
+
+## Scaling
+
+```python
+# Scale to 100 secondary nodes
+cluster.scale(100)
+
+# Most will be Docker containers unless remote hosts are configured
 ```
 
-This script will:
-- Install the LineairDB storage engine plugin on all cluster nodes (primary and secondaries)
-- Verify the plugin is active on each node
-- Display the status of LineairDB engine availability
+When scaling:
+- Remote machine nodes are preserved
+- Docker containers are added/removed as needed
+- New nodes are automatically added to the InnoDB cluster
 
-### Switch Storage Engine
+## File Structure
 
-```bash
-./scripts/switch-to-lineairdb.sh
 ```
-
-This script will:
-- Check if LineairDB plugin is available
-- Set default storage engine to LineairDB
-- Generate ALTER TABLE statements for existing tables
-
-### Manual Conversion
-
-For existing tables, convert them manually:
-
-```bash
-mysql -h 127.0.0.1 -P 6446 --protocol=TCP -u root -pkamo testdb -e "ALTER TABLE your_table ENGINE=LineairDB;"
-```
-
-### Create New Tables with LineairDB
-
-```sql
-CREATE TABLE test_table (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    data VARCHAR(255)
-) ENGINE=LineairDB;
-```
-
-## Testing the Cluster
-
-### Run Cluster Tests
-
-Test scripts are located in the `tests/` directory:
-
-1. **Comprehensive Test Script** (Recommended):
-   ```bash
-   ./tests/test-cluster.sh
-   ```
-   This script runs all tests with detailed output, color coding, and verification:
-   - Database and table creation
-   - Data insertion
-   - Data confirmation
-   - Replication verification (read-only port)
-   - Transaction testing
-   - Node-to-node replication check
-   - Direct node access verification
-
-2. **Simple Test Script**:
-   ```bash
-   ./tests/test-cluster-simple.sh
-   ```
-   Simpler version without colors, executes all SQL tests.
-
-3. **SQL File** (Execute directly):
-   ```bash
-   mysql -h 127.0.0.1 -P 6446 --protocol=TCP -u root -pkamo < tests/test-sql.sql
-   ```
-
-### Performance Testing
-
-```bash
-./scripts/performance-test.sh [host] [port] [iterations] [threads]
-```
-
-Example:
-```bash
-# Test against router (read-write)
-./scripts/performance-test.sh localhost 6446 10000 10
-
-# Test against primary directly
-./scripts/performance-test.sh localhost 33061 10000 10
+mysql-cluster/
+├── bridge/                     # Python bridge module
+│   ├── __init__.py
+│   ├── config.py              # Configuration management
+│   ├── primary.py             # Primary node manager
+│   ├── secondary.py           # Secondary node manager
+│   ├── cluster.py             # Main bridge interface
+│   └── cli.py                 # Command-line interface
+├── examples/                   # Integration examples
+│   └── lineairdb_integration.py
+├── config/                     # Generated configuration files (created at runtime)
+│   ├── cluster.json           # Cluster configuration
+│   ├── primary.cnf            # Primary MySQL config
+│   └── secondary*.cnf         # Secondary MySQL configs
+├── data/                       # Data directories (created at runtime)
+│   ├── primary/               # Primary node data
+│   └── secondary*/            # Secondary node data
+├── logs/                       # Log files (created at runtime)
+├── setup_bridge.py            # Setup script
+├── requirements.txt           # Python dependencies
+└── README.md                  # This file
 ```
 
 ## Connection Information
@@ -245,7 +362,7 @@ Example:
 | Setting | Value |
 |---------|-------|
 | Root Password | `kamo` |
-| Cluster Name | `kamo` |
+| Cluster Name | `lineairdb_cluster` |
 | Database | `testdb` |
 | User | `clusteruser` |
 | Password | `kamo` |
@@ -254,245 +371,55 @@ Example:
 
 ### Connection Strings
 
-**Via Router (Read-Write)**:
+**Primary (Local)**:
 ```bash
-mysql -h 127.0.0.1 -P 6446 --protocol=TCP -u root -pkamo
+mysql -h 127.0.0.1 -P 3306 -u root -pkamo
 ```
 
-**Via Router (Read-Only)**:
+**Secondary (Docker)**:
 ```bash
-mysql -h 127.0.0.1 -P 6447 --protocol=TCP -u root -pkamo
-```
+# Secondary 1
+mysql -h 127.0.0.1 -P 33062 -u root -pkamo
 
-**Direct to Primary**:
-```bash
-mysql -h 127.0.0.1 -P 33061 --protocol=TCP -u root -pkamo
-```
-
-## Management Commands
-
-### Start Cluster
-
-```bash
-docker-compose up -d
-# or for LineairDB version:
-docker-compose -f docker-compose-lineairdb.yml up -d
-```
-
-### Stop Cluster
-
-```bash
-docker-compose down
-```
-
-### View Logs
-
-```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f mysql-primary
-docker-compose logs -f mysql-router
-```
-
-### Restart Service
-
-```bash
-docker-compose restart mysql-primary
-```
-
-### Check Container Status
-
-```bash
-docker-compose ps
-```
-
-### Execute Commands in Container
-
-```bash
-docker exec -it mysql-primary bash
-docker exec -it mysql-primary mysql -uroot -pkamo
-```
-
-## Cleanup Scripts
-
-The `cleanup/` directory contains scripts to clean up the cluster:
-
-### Complete Cleanup (All Containers, Data, and Networks)
-
-```bash
-./cleanup/cleanup-all.sh
-```
-
-This will:
-- Stop and remove all containers
-- Remove all data directories
-- Remove Docker networks
-- Clean up `/etc/hosts` entries
-
-### Containers Only (Preserve Data)
-
-```bash
-./cleanup/cleanup-containers-only.sh
-```
-
-This will:
-- Stop and remove containers
-- Remove Docker networks
-- **Keep data directories intact**
-
-### Data Only (Keep Containers Running)
-
-```bash
-./cleanup/cleanup-data-only.sh
-```
-
-This will:
-- Stop containers
-- Remove all database data
-- **Keep containers and networks**
-
-## Monitoring
-
-### Check Group Replication Status
-
-```bash
-docker exec -it mysql-primary mysql -uroot -pkamo -e "
-SELECT 
-    MEMBER_ID,
-    MEMBER_HOST,
-    MEMBER_PORT,
-    MEMBER_STATE,
-    MEMBER_ROLE
-FROM performance_schema.replication_group_members;
-"
-```
-
-### Check Replication Lag
-
-```bash
-docker exec -it mysql-primary mysql -uroot -pkamo -e "
-SHOW SLAVE STATUS\G
-"
-```
-
-### Check Storage Engines
-
-```bash
-docker exec -it mysql-primary mysql -uroot -pkamo -e "SHOW ENGINES;"
+# Secondary 2
+mysql -h 127.0.0.1 -P 33063 -u root -pkamo
 ```
 
 ## Troubleshooting
 
-### Containers Not Starting
+### Primary Node Won't Start
 
-1. Check Docker daemon: `docker ps`
-2. Check logs: `docker-compose logs`
-3. Check disk space: `df -h`
-4. Check ports: `netstat -tuln | grep -E '3306|6446|6447'`
+1. Check if MySQL is installed: `which mysqld`
+2. Check systemctl status: `sudo systemctl status mysql`
+3. Check MySQL error log: `/var/log/mysql/error.log`
+
+### Docker Containers Won't Start
+
+1. Check Docker is running: `docker ps`
+2. Check Docker logs: `docker logs mysql-secondary-1`
+3. Check available disk space: `df -h`
 
 ### Group Replication Issues
 
-1. Check if all nodes are running: `docker-compose ps`
-2. Verify network connectivity between containers
-3. Check MySQL error logs: `docker-compose logs mysql-primary`
-4. Verify configuration files are correct
+1. Ensure all nodes can communicate
+2. Check MySQL Shell is installed: `mysqlsh --version`
+3. Verify cluster status:
+   ```bash
+   mysqlsh root:kamo@127.0.0.1:3306 --js -e "dba.getCluster().status()"
+   ```
 
-### LineairDB Plugin Not Found
+### SSH Access for Remote Nodes
 
-1. Verify MySQL version is 8.0.43: `SELECT VERSION();`
-2. Check if plugin file exists: `ls docker-build-context/plugins/`
-3. Rebuild the LineairDB image: `./build-lineairdb-image.sh`
-4. Check plugin installation: `SHOW PLUGINS;`
-
-### Performance Issues
-
-1. Check buffer pool size in configuration
-2. Monitor system resources: `htop` or `docker stats`
-3. Check replication lag
-4. Verify storage engine is correctly set
-
-## File Structure
-
-```
-mysql-cluster/
-├── docker-compose.yml              # Standard MySQL cluster config
-├── docker-compose-lineairdb.yml    # LineairDB-enabled cluster config
-├── Dockerfile.mysql-lineairdb      # Dockerfile for LineairDB MySQL image
-├── docker-entrypoint.sh            # Custom entrypoint for LineairDB image
-├── build-lineairdb-image.sh        # Script to build LineairDB Docker image
-├── setup.sh                        # Main setup script
-├── check-cluster-status.sh         # Cluster status checker
-├── check-environment.sh            # Environment verification script
-├── README.md                       # This file
-├── SETUP_SUMMARY.md                # Setup summary document
-├── plugins/                        # Pre-built LineairDB plugin
-│   └── ha_lineairdb_storage_engine.so  # LineairDB storage engine plugin
-├── config/                         # Configuration files
-│   ├── primary.cnf                 # Primary node config
-│   ├── secondary1.cnf              # Secondary node 1 config
-│   ├── secondary2.cnf              # Secondary node 2 config
-│   └── router.conf                 # Router config
-├── scripts/                        # Utility scripts
-│   ├── setup-cluster-mysqlshell-8.0.43.sh  # Cluster setup using MySQL Shell
-│   ├── install-lineairdb-plugin.sh # Install LineairDB plugin on all nodes
-│   ├── switch-to-lineairdb.sh      # Storage engine switch
-│   └── performance-test.sh         # Performance testing
-├── cleanup/                        # Cleanup scripts
-│   ├── cleanup-all.sh              # Complete cleanup
-│   ├── cleanup-containers-only.sh  # Cleanup containers only
-│   └── cleanup-data-only.sh        # Cleanup data only
-├── tests/                          # Test scripts
-│   ├── README.md                   # Test documentation
-│   ├── test-cluster.sh             # Comprehensive test script
-│   ├── test-cluster-simple.sh      # Simple test script
-│   └── test-sql.sql                # SQL test file
-├── docker-build-context/           # Build context for LineairDB image
-│   ├── Dockerfile                  # Copied from Dockerfile.mysql-lineairdb
-│   ├── docker-entrypoint.sh        # Entrypoint script
-│   ├── bin/                        # MySQL binaries
-│   ├── lib/                        # Library dependencies
-│   ├── plugins/                    # MySQL plugins (including LineairDB)
-│   └── share/                      # MySQL share files
-├── data/                           # Data directories (created by Docker)
-│   ├── primary/
-│   ├── secondary1/
-│   └── secondary2/
-└── logs/                           # Log files
-```
-
-## Notes
-
-1. **MySQL 8.0.43**: This specific version is required for LineairDB support.
-
-2. **MySQL Router Version**: The cluster uses the `latest` MySQL Router tag from [Docker Hub](https://hub.docker.com/r/mysql/mysql-router/tags) (currently 8.0.32), which is compatible with MySQL Server 8.0.43.
-
-3. **LineairDB Plugin**: The pre-built LineairDB storage engine plugin is included at `plugins/ha_lineairdb_storage_engine.so`. You can also rebuild it from the [LineairDB storage engine](https://github.com/Tatzhiro/LineairDB-storage-engine) source.
-
-4. **Data Persistence**: Data is stored in `./data/` directories. To reset the cluster, use `./cleanup/cleanup-all.sh`.
-
-5. **Network**: Containers communicate via a Docker bridge network (172.20.0.0/16).
-
-6. **Security**: Default password is `kamo` for convenience. **Change it in production!**
-
-7. **Cluster Name**: The InnoDB Cluster is named `kamo`.
-
-8. **MySQL Shell Required**: The cluster setup requires MySQL Shell to be installed on the host machine.
-
-## Version History
-
-- **v1.1.0**: Upgraded MySQL from 8.0.32 to 8.0.43 for compatibility with LineairDB storage engine
-- **v1.0.1**: Added pre-built LineairDB plugin to repository (`plugins/ha_lineairdb_storage_engine.so`)
-- **v1.0.0**: Initial setup with MySQL 8.0.32, 4-node cluster, InnoDB to LineairDB switching capability
+1. Verify SSH connectivity: `ssh user@host echo ok`
+2. Check SSH key permissions: `chmod 600 /path/to/key`
+3. Ensure MySQL is installed on remote machine
 
 ## License
 
-This setup is provided as-is for testing and development purposes.
+This project is provided as-is for testing and development purposes.
 
-## Support
+## References
 
-For issues related to:
-- **MySQL Cluster**: Check [MySQL Documentation](https://dev.mysql.com/doc/)
-- **LineairDB**: Refer to LineairDB documentation
-- **Docker**: Check [Docker Documentation](https://docs.docker.com/)
+- [LineairDB Storage Engine](https://github.com/Tatzhiro/LineairDB-storage-engine)
+- [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication.html)
+- [MySQL Shell](https://dev.mysql.com/doc/mysql-shell/8.0/en/)
