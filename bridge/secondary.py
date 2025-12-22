@@ -278,7 +278,7 @@ try {{
                     }
                 },
                 "command": (
-                    f"--server-id={server_id} "
+                    f"mysqld --server-id={server_id} "
                     "--log-bin=mysql-bin "
                     "--gtid-mode=ON "
                     "--enforce-gtid-consistency=ON "

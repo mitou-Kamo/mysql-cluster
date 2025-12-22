@@ -142,6 +142,12 @@ EOSQL
     log "Starting MySQL server..."
 fi
 
+# Preload jemalloc to avoid TLS block issues when loading LineairDB plugin
+# This is needed because of how jemalloc interacts with MySQL's plugin loading
+if [ -f /usr/lib/x86_64-linux-gnu/libjemalloc.so.2 ]; then
+    export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+fi
+
 # Execute the command
 exec "$@"
 
