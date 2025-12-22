@@ -253,8 +253,11 @@ try {{
             server_id = node.server_id or node.node_id
             host_port = 33060 + node.node_id
             
+            # Use configurable image (custom Ubuntu or official Oracle Linux)
+            docker_image = self.config.get_docker_image()
+            
             service = {
-                "image": f"mysql:{self.config.mysql_version}",
+                "image": docker_image,
                 "container_name": node.container_name,
                 "hostname": node.container_name,
                 "environment": {
@@ -262,6 +265,7 @@ try {{
                     "MYSQL_DATABASE": self.config.mysql_database,
                     "MYSQL_USER": self.config.mysql_user,
                     "MYSQL_PASSWORD": self.config.mysql_user_password,
+                    "MYSQL_SERVER_ID": str(server_id),  # For Ubuntu image entrypoint
                 },
                 "ports": [f"{host_port}:3306"],
                 "volumes": [
@@ -369,6 +373,67 @@ max_allowed_packet = 256M
         
         return config_paths
     
+    def check_docker_image_exists(self) -> Tuple[bool, str]:
+        """
+        Check if the configured Docker image exists.
+        
+        Returns:
+            Tuple of (exists, message)
+        """
+        docker_image = self.config.get_docker_image()
+        
+        try:
+            result = subprocess.run(
+                ["docker", "image", "inspect", docker_image],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                return True, f"Image '{docker_image}' is available"
+            return False, f"Image '{docker_image}' not found. Run 'mysql-cluster-bridge build-image' to build it."
+        except Exception as e:
+            return False, f"Failed to check Docker image: {e}"
+    
+    def _try_build_image(self) -> Tuple[bool, str]:
+        """
+        Try to build the custom Docker image.
+        
+        Returns:
+            Tuple of (success, message)
+        """
+        docker_dir = self.config.docker_dir
+        dockerfile_path = docker_dir / "Dockerfile.ubuntu"
+        
+        if not dockerfile_path.exists():
+            return False, f"Dockerfile not found at {dockerfile_path}"
+        
+        docker_image = self.config.docker_image
+        
+        try:
+            logger.info(f"Building Docker image '{docker_image}'...")
+            result = subprocess.run(
+                [
+                    "docker", "build",
+                    "-t", docker_image,
+                    "-f", str(dockerfile_path),
+                    str(docker_dir)
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600  # 10 minutes for build
+            )
+            
+            if result.returncode != 0:
+                return False, f"Build failed: {result.stderr}"
+            
+            logger.info(f"Successfully built Docker image '{docker_image}'")
+            return True, f"Image '{docker_image}' built successfully"
+        except subprocess.TimeoutExpired:
+            return False, "Build timed out after 10 minutes"
+        except Exception as e:
+            return False, str(e)
+    
     def start_docker_containers(self) -> Tuple[bool, str]:
         """
         Start all Docker container secondary nodes.
@@ -380,6 +445,17 @@ max_allowed_packet = 256M
         
         if not docker_nodes:
             return True, "No Docker secondary nodes to start"
+        
+        # Check if custom image is required and exists
+        if self.config.use_custom_image:
+            exists, msg = self.check_docker_image_exists()
+            if not exists:
+                logger.warning(msg)
+                logger.info("Attempting to build the Docker image...")
+                # Try to build the image if it doesn't exist
+                build_success, build_msg = self._try_build_image()
+                if not build_success:
+                    return False, f"Docker image not available: {msg}. Build failed: {build_msg}"
         
         # Generate docker-compose file
         self.generate_docker_compose()

@@ -149,11 +149,16 @@ class ClusterConfig:
     mysql_user: str = "clusteruser"
     mysql_user_password: str = "kamo"
     
+    # Docker image configuration
+    docker_image: str = "mysql-lineairdb-ubuntu:8.0.43"  # Custom Ubuntu-based image
+    use_custom_image: bool = True  # Whether to use custom image vs official mysql image
+    
     # Paths
     base_dir: Path = field(default_factory=lambda: Path.cwd())
     config_dir: Path = field(default_factory=lambda: Path.cwd() / "config")
     data_dir: Path = field(default_factory=lambda: Path.cwd() / "data")
     logs_dir: Path = field(default_factory=lambda: Path.cwd() / "logs")
+    docker_dir: Path = field(default_factory=lambda: Path.cwd() / "docker")
     
     # MySQL binary paths (for local binary installation)
     mysql_bin_dir: Optional[str] = None
@@ -171,6 +176,14 @@ class ClusterConfig:
             self.data_dir = Path(self.data_dir)
         if isinstance(self.logs_dir, str):
             self.logs_dir = Path(self.logs_dir)
+        if isinstance(self.docker_dir, str):
+            self.docker_dir = Path(self.docker_dir)
+    
+    def get_docker_image(self) -> str:
+        """Get the Docker image to use for secondary containers."""
+        if self.use_custom_image:
+            return self.docker_image
+        return f"mysql:{self.mysql_version}"
     
     def get_all_nodes(self) -> List[NodeConfig]:
         """Get all nodes (primary + secondaries)."""
@@ -304,10 +317,13 @@ class ClusterConfig:
             "docker_network_name": self.docker_network_name,
             "docker_network_subnet": self.docker_network_subnet,
             "docker_base_ip": self.docker_base_ip,
+            "docker_image": self.docker_image,
+            "use_custom_image": self.use_custom_image,
             "base_dir": str(self.base_dir),
             "config_dir": str(self.config_dir),
             "data_dir": str(self.data_dir),
             "logs_dir": str(self.logs_dir),
+            "docker_dir": str(self.docker_dir),
             "mysql_bin_dir": self.mysql_bin_dir,
             "mysqld_path": self.mysqld_path,
             "mysql_client_path": self.mysql_client_path,
@@ -337,10 +353,13 @@ class ClusterConfig:
             docker_network_name=data.get("docker_network_name", "mysql-cluster-net"),
             docker_network_subnet=data.get("docker_network_subnet", "172.20.0.0/16"),
             docker_base_ip=data.get("docker_base_ip", "172.20.0"),
+            docker_image=data.get("docker_image", "mysql-lineairdb-ubuntu:8.0.43"),
+            use_custom_image=data.get("use_custom_image", True),
             base_dir=Path(data.get("base_dir", ".")),
             config_dir=Path(data.get("config_dir", "./config")),
             data_dir=Path(data.get("data_dir", "./data")),
             logs_dir=Path(data.get("logs_dir", "./logs")),
+            docker_dir=Path(data.get("docker_dir", "./docker")),
             mysql_bin_dir=data.get("mysql_bin_dir"),
             mysqld_path=data.get("mysqld_path"),
             mysql_client_path=data.get("mysql_client_path"),
@@ -361,6 +380,7 @@ def create_default_config(
     primary_type: NodeType = NodeType.LOCAL_SYSTEMCTL,
     remote_hosts: Optional[List[Dict[str, str]]] = None,
     base_dir: Optional[Path] = None,
+    use_custom_image: bool = True,
 ) -> ClusterConfig:
     """
     Create a default cluster configuration.
@@ -370,6 +390,7 @@ def create_default_config(
         primary_type: Type of primary node (LOCAL_SYSTEMCTL or LOCAL_BINARY)
         remote_hosts: Optional list of remote hosts for secondary nodes
         base_dir: Base directory for cluster files
+        use_custom_image: Whether to use custom Ubuntu image (True) or official MySQL image (False)
     
     Returns:
         ClusterConfig instance
@@ -381,6 +402,8 @@ def create_default_config(
         config_dir=base_dir / "config",
         data_dir=base_dir / "data",
         logs_dir=base_dir / "logs",
+        docker_dir=base_dir / "docker",
+        use_custom_image=use_custom_image,
     )
     
     # Configure primary node (local MySQL)

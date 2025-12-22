@@ -122,6 +122,126 @@ class ClusterBridge:
         """
         return self.config.save(filepath)
     
+    def build_docker_image(self, no_cache: bool = False) -> Dict[str, Any]:
+        """
+        Build the custom Ubuntu-based MySQL Docker image.
+        
+        Args:
+            no_cache: Whether to build without using cache
+            
+        Returns:
+            Dictionary with build results
+        """
+        results = {
+            "success": True,
+            "image": self.config.docker_image,
+            "message": "",
+        }
+        
+        docker_dir = self.config.docker_dir
+        dockerfile_path = docker_dir / "Dockerfile.ubuntu"
+        entrypoint_path = docker_dir / "docker-entrypoint.sh"
+        
+        # Check if Dockerfile exists
+        if not dockerfile_path.exists():
+            results["success"] = False
+            results["message"] = f"Dockerfile not found at {dockerfile_path}"
+            return results
+        
+        if not entrypoint_path.exists():
+            results["success"] = False
+            results["message"] = f"Entrypoint script not found at {entrypoint_path}"
+            return results
+        
+        logger.info(f"Building Docker image '{self.config.docker_image}'...")
+        
+        try:
+            cmd = [
+                "docker", "build",
+                "-t", self.config.docker_image,
+                "-f", str(dockerfile_path),
+            ]
+            
+            if no_cache:
+                cmd.append("--no-cache")
+            
+            cmd.append(str(docker_dir))
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1200  # 20 minutes for build
+            )
+            
+            if result.returncode != 0:
+                results["success"] = False
+                results["message"] = f"Build failed: {result.stderr}"
+                logger.error(f"Docker build failed: {result.stderr}")
+                return results
+            
+            results["message"] = f"Successfully built image '{self.config.docker_image}'"
+            logger.info(results["message"])
+            
+            # Get image info
+            inspect_result = subprocess.run(
+                ["docker", "image", "inspect", self.config.docker_image, "--format", "{{.Size}}"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if inspect_result.returncode == 0:
+                size_bytes = int(inspect_result.stdout.strip())
+                size_mb = size_bytes / (1024 * 1024)
+                results["size_mb"] = round(size_mb, 2)
+            
+        except subprocess.TimeoutExpired:
+            results["success"] = False
+            results["message"] = "Build timed out after 20 minutes"
+            logger.error(results["message"])
+        except Exception as e:
+            results["success"] = False
+            results["message"] = str(e)
+            logger.error(f"Build error: {e}")
+        
+        return results
+    
+    def check_docker_image(self) -> Dict[str, Any]:
+        """
+        Check if the configured Docker image exists.
+        
+        Returns:
+            Dictionary with image status
+        """
+        docker_image = self.config.get_docker_image()
+        
+        result = {
+            "image": docker_image,
+            "exists": False,
+            "is_custom": self.config.use_custom_image,
+        }
+        
+        try:
+            inspect_result = subprocess.run(
+                ["docker", "image", "inspect", docker_image],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            result["exists"] = inspect_result.returncode == 0
+            
+            if result["exists"]:
+                # Get image details
+                import json
+                image_info = json.loads(inspect_result.stdout)
+                if image_info:
+                    result["created"] = image_info[0].get("Created", "Unknown")
+                    result["size"] = image_info[0].get("Size", 0)
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+    
     def setup(self) -> Dict[str, Any]:
         """
         Set up the cluster infrastructure.
@@ -143,6 +263,7 @@ class ClusterBridge:
             self.config.config_dir.mkdir(parents=True, exist_ok=True)
             self.config.data_dir.mkdir(parents=True, exist_ok=True)
             self.config.logs_dir.mkdir(parents=True, exist_ok=True)
+            self.config.docker_dir.mkdir(parents=True, exist_ok=True)
             (self.config.data_dir / "primary").mkdir(parents=True, exist_ok=True)
             results["steps"].append({"name": "create_directories", "success": True})
         except Exception as e:

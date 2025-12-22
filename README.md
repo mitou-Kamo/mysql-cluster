@@ -12,6 +12,7 @@ The MySQL Cluster Bridge provides:
 - **Secondary Nodes**: Flexible deployment options:
   - Remote machines (if IP addresses are provided)
   - Docker containers (automatically created if remote machines not available)
+- **Ubuntu-based Docker Image**: Custom Ubuntu 22.04 MySQL image (instead of Oracle Linux)
 - **Auto-scaling**: Create any number of secondary nodes (e.g., 100 Docker containers)
 - **Plugin Installation**: Automatically install LineairDB storage engine plugin on all nodes
 - **Bridge Interface**: Clean abstraction for LineairDB replication integration
@@ -35,7 +36,7 @@ The MySQL Cluster Bridge provides:
     ┌───────────────┐       ┌───────────────┐       ┌───────────────┐
     │   Primary     │       │  Secondary    │       │  Secondary    │
     │   (Local)     │◄─────►│  (Remote or   │◄─────►│  (Docker)     │
-    │   MySQL +     │       │   Docker)     │       │               │
+    │   MySQL +     │       │   Docker)     │       │  Ubuntu-based │
     │   LineairDB   │       └───────────────┘       └───────────────┘
     └───────────────┘
          │
@@ -64,23 +65,47 @@ cd mysql-cluster
 pip install -r requirements.txt
 ```
 
-### Create a Cluster
+### Build the Docker Image (Required for Custom Ubuntu Image)
 
-#### With Docker Secondaries (Easiest)
+Before creating a cluster with Docker secondaries, build the custom Ubuntu-based MySQL image:
 
 ```bash
-# Create a cluster with 5 Docker secondary nodes
-./setup_bridge.py --secondaries 5 --start
+# Build the custom Ubuntu MySQL image
+python -m bridge.cli build-image
+
+# Or using the shell script
+./docker/build-image.sh
+
+# Verify the image was built
+python -m bridge.cli check-image
+```
+
+### Create a Cluster
+
+#### With Docker Secondaries (Default - Ubuntu Image)
+
+```bash
+# Create a cluster with 5 Docker secondary nodes using custom Ubuntu image
+python -m bridge.cli create --secondaries 5
+
+# Start the cluster
+python -m bridge.cli start
+```
+
+#### With Official MySQL Image (Oracle Linux)
+
+```bash
+# Use official MySQL image instead of custom Ubuntu image
+python -m bridge.cli create --secondaries 5 --use-official-image
 ```
 
 #### With Remote Machines
 
 ```bash
 # Create a cluster with remote machines
-./setup_bridge.py --secondaries 3 \
+python -m bridge.cli create --secondaries 3 \
     --remote-host 192.168.1.10:mysql \
-    --remote-host 192.168.1.11:mysql \
-    --start
+    --remote-host 192.168.1.11:mysql
 
 # Note: If fewer remote hosts are provided than secondaries,
 # remaining nodes will be Docker containers
@@ -99,8 +124,18 @@ pip install -r requirements.txt
 ### CLI Commands
 
 ```bash
+# Build Ubuntu-based Docker image
+python -m bridge.cli build-image
+python -m bridge.cli build-image --no-cache  # Rebuild without cache
+python -m bridge.cli build-image --tag my-mysql:latest  # Custom tag
+
+# Check Docker image availability
+python -m bridge.cli check-image
+
 # Create cluster configuration
 python -m bridge.cli create --secondaries 5
+python -m bridge.cli create --secondaries 5 --use-official-image  # Use Oracle Linux image
+python -m bridge.cli create --secondaries 5 --docker-image my-mysql:latest  # Custom image
 
 # Set up infrastructure
 python -m bridge.cli setup
@@ -135,6 +170,33 @@ python -m bridge.cli stop
 python -m bridge.cli cleanup --all
 ```
 
+## Docker Image Configuration
+
+### Custom Ubuntu Image (Default)
+
+By default, the bridge uses a custom Ubuntu 22.04-based MySQL image (`mysql-lineairdb-ubuntu:8.0.43`). This provides:
+
+- **Ubuntu 22.04 base** instead of Oracle Linux
+- **Pre-configured for Group Replication** (GTID, binary logging)
+- **MySQL Shell pre-installed**
+- **Plugin directory ready** for LineairDB installation
+
+### Official MySQL Image
+
+You can also use the official MySQL image (Oracle Linux-based) by specifying `--use-official-image`:
+
+```bash
+python -m bridge.cli create --secondaries 5 --use-official-image
+```
+
+### Custom Image Tag
+
+Specify a custom Docker image tag:
+
+```bash
+python -m bridge.cli create --secondaries 5 --docker-image my-registry/mysql:custom
+```
+
 ## Python API
 
 The bridge provides a clean Python API for LineairDB integration:
@@ -142,7 +204,16 @@ The bridge provides a clean Python API for LineairDB integration:
 ```python
 from bridge import ClusterBridge, create_cluster, load_cluster
 
-# Create a new cluster
+# Build custom Docker image first
+cluster = ClusterBridge.create(num_secondaries=5)
+result = cluster.build_docker_image()
+print(result["message"])
+
+# Check if image exists
+image_status = cluster.check_docker_image()
+print(f"Image exists: {image_status['exists']}")
+
+# Create a new cluster (uses custom Ubuntu image by default)
 cluster = create_cluster(num_secondaries=10)
 cluster.start()
 
@@ -179,6 +250,97 @@ cluster.install_lineairdb_plugin()
 cluster.install_lineairdb_plugin("/path/to/LineairDB-storage-engine/build/ha_lineairdb.so")
 ```
 
+## Testing Before Committing (Submodule Usage)
+
+Since this repository is typically used as a submodule of LineairDB-storage-engine, you can test changes locally before committing:
+
+### Option 1: Test Directly in the Submodule Directory
+
+```bash
+cd mysql-cluster  # or the submodule path
+
+# Test CLI commands directly
+python -m bridge.cli build-image
+python -m bridge.cli check-image
+python -m bridge.cli create --secondaries 2
+python -m bridge.cli start
+python -m bridge.cli status
+python -m bridge.cli stop
+python -m bridge.cli cleanup --all
+```
+
+### Option 2: Test from Parent Repository with Local Changes
+
+```bash
+cd LineairDB-storage-engine
+
+# Python will use the local submodule code (uncommitted changes work)
+python -c "
+from cluster.bridge import ClusterBridge, create_cluster
+
+# Test building the image
+cluster = ClusterBridge.create(num_secondaries=2)
+result = cluster.build_docker_image()
+print(f'Build result: {result}')
+
+# Test image check
+status = cluster.check_docker_image()
+print(f'Image status: {status}')
+"
+```
+
+### Option 3: Run Integration Tests
+
+```bash
+cd mysql-cluster
+
+# Quick smoke test
+python -c "
+from bridge import ClusterBridge
+from bridge.config import ClusterConfig
+
+# Test configuration
+config = ClusterConfig()
+print(f'Docker image: {config.get_docker_image()}')
+print(f'Use custom: {config.use_custom_image}')
+
+# Test bridge creation
+bridge = ClusterBridge(config)
+print('Bridge created successfully')
+
+# Test image check (doesn't require running containers)
+result = bridge.check_docker_image()
+print(f'Image check: {result}')
+"
+
+# Build and test Docker image
+python -m bridge.cli build-image
+docker run --rm mysql-lineairdb-ubuntu:8.0.43 mysqld --version
+```
+
+### Option 4: Interactive Testing with Docker
+
+```bash
+# Build the image
+cd mysql-cluster
+python -m bridge.cli build-image
+
+# Run a test container
+docker run -d --name mysql-test \
+    -e MYSQL_ROOT_PASSWORD=test123 \
+    -p 3307:3306 \
+    mysql-lineairdb-ubuntu:8.0.43
+
+# Wait for MySQL to start
+sleep 30
+
+# Test connection
+mysql -h 127.0.0.1 -P 3307 -u root -ptest123 -e "SELECT VERSION();"
+
+# Clean up
+docker rm -f mysql-test
+```
+
 ## Configuration
 
 ### Cluster Configuration File
@@ -190,6 +352,8 @@ The cluster configuration is stored in `config/cluster.json`:
   "cluster_name": "lineairdb_cluster",
   "mysql_version": "8.0.43",
   "mysql_root_password": "kamo",
+  "docker_image": "mysql-lineairdb-ubuntu:8.0.43",
+  "use_custom_image": true,
   "primary": {
     "node_id": 1,
     "hostname": "primary",
@@ -264,7 +428,7 @@ Secondary nodes can be:
 
 2. **DOCKER_CONTAINER**: Local Docker container
    - Automatically created and managed
-   - Uses official MySQL 8.0.43 image
+   - Uses custom Ubuntu-based MySQL image (default) or official MySQL image
    - Good for testing and development
 
 ## LineairDB Plugin Installation
@@ -340,6 +504,10 @@ mysql-cluster/
 │   ├── secondary.py           # Secondary node manager
 │   ├── cluster.py             # Main bridge interface
 │   └── cli.py                 # Command-line interface
+├── docker/                     # Docker files for Ubuntu image
+│   ├── Dockerfile.ubuntu      # Ubuntu 22.04 MySQL image
+│   ├── docker-entrypoint.sh   # Container entrypoint script
+│   └── build-image.sh         # Build script
 ├── examples/                   # Integration examples
 │   └── lineairdb_integration.py
 ├── config/                     # Generated configuration files (created at runtime)
@@ -387,6 +555,24 @@ mysql -h 127.0.0.1 -P 33063 -u root -pkamo
 
 ## Troubleshooting
 
+### Docker Image Build Fails
+
+1. Check Docker is running: `docker ps`
+2. Check internet connectivity (needs to download MySQL packages)
+3. Try building without cache: `python -m bridge.cli build-image --no-cache`
+4. Check disk space: `df -h`
+5. View build output manually:
+   ```bash
+   cd docker
+   docker build -t mysql-lineairdb-ubuntu:8.0.43 -f Dockerfile.ubuntu .
+   ```
+
+### Docker Image Not Found
+
+1. Build the image first: `python -m bridge.cli build-image`
+2. Check if image exists: `docker images | grep mysql-lineairdb-ubuntu`
+3. Or use official image: `python -m bridge.cli create --secondaries 5 --use-official-image`
+
 ### Primary Node Won't Start
 
 1. Check if MySQL is installed: `which mysqld`
@@ -398,6 +584,7 @@ mysql -h 127.0.0.1 -P 33063 -u root -pkamo
 1. Check Docker is running: `docker ps`
 2. Check Docker logs: `docker logs mysql-secondary-1`
 3. Check available disk space: `df -h`
+4. Check if the Docker image exists: `python -m bridge.cli check-image`
 
 ### Group Replication Issues
 

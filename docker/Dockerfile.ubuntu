@@ -1,0 +1,86 @@
+# Ubuntu 22.04 MySQL Image for LineairDB Cluster
+# This Dockerfile builds a custom MySQL image based on Ubuntu instead of Oracle Linux
+
+FROM ubuntu:22.04
+
+LABEL maintainer="LineairDB Team"
+LABEL description="Ubuntu 22.04 based MySQL 8.0 for LineairDB Cluster"
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MYSQL_ROOT_PASSWORD=""
+ENV MYSQL_DATABASE=""
+ENV MYSQL_USER=""
+ENV MYSQL_PASSWORD=""
+ENV MYSQL_ALLOW_EMPTY_PASSWORD=no
+
+# Install dependencies and MySQL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    dirmngr \
+    lsb-release \
+    wget \
+    libaio1 \
+    libnuma1 \
+    libncurses6 \
+    libssl3 \
+    perl \
+    psmisc \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install MySQL Server from Ubuntu repositories
+# Ubuntu 22.04 provides MySQL 8.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mysql-server \
+    mysql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create MySQL user and group if they don't exist
+RUN groupadd -r mysql || true \
+    && useradd -r -g mysql mysql || true
+
+# Create necessary directories
+RUN mkdir -p /var/run/mysqld /var/lib/mysql /var/log/mysql /etc/mysql/conf.d \
+    && chown -R mysql:mysql /var/run/mysqld /var/lib/mysql /var/log/mysql \
+    && chmod 755 /var/run/mysqld
+
+# Configure MySQL for Group Replication
+RUN echo "[mysqld]" > /etc/mysql/conf.d/docker.cnf \
+    && echo "user=mysql" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "bind-address=0.0.0.0" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "default-authentication-plugin=mysql_native_password" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "# Binary Logging and GTID" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "log-bin=mysql-bin" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "binlog-format=ROW" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "gtid-mode=ON" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "enforce-gtid-consistency=ON" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "# Relay Log" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "relay-log=mysql-relay-bin" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "relay-log-recovery=1" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "# InnoDB" >> /etc/mysql/conf.d/docker.cnf \
+    && echo "default-storage-engine=InnoDB" >> /etc/mysql/conf.d/docker.cnf
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Create directory for custom plugins (LineairDB)
+RUN mkdir -p /usr/lib/mysql/plugin \
+    && chown -R mysql:mysql /usr/lib/mysql/plugin
+
+# Volume for MySQL data
+VOLUME ["/var/lib/mysql"]
+
+# Expose MySQL port
+EXPOSE 3306 33060
+
+# Set entrypoint
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["mysqld"]
+

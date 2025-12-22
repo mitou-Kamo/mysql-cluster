@@ -93,6 +93,17 @@ Examples:
         default="kamo",
         help="MySQL root password (default: kamo)"
     )
+    create_parser.add_argument(
+        "--use-official-image",
+        action="store_true",
+        help="Use official MySQL image instead of custom Ubuntu image"
+    )
+    create_parser.add_argument(
+        "--docker-image",
+        type=str,
+        default=None,
+        help="Custom Docker image tag (default: mysql-lineairdb-ubuntu:8.0.43)"
+    )
     
     # Setup command
     setup_parser = subparsers.add_parser("setup", help="Set up cluster infrastructure")
@@ -162,6 +173,29 @@ Examples:
         help="Remove containers only, keep data"
     )
     
+    # Build-image command
+    build_image_parser = subparsers.add_parser(
+        "build-image",
+        help="Build the custom Ubuntu-based MySQL Docker image"
+    )
+    build_image_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Build without using Docker cache"
+    )
+    build_image_parser.add_argument(
+        "--tag",
+        type=str,
+        default=None,
+        help="Custom image tag (default: mysql-lineairdb-ubuntu:8.0.43)"
+    )
+    
+    # Check-image command
+    check_image_parser = subparsers.add_parser(
+        "check-image",
+        help="Check if the Docker image is available"
+    )
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -185,10 +219,14 @@ def run_command(args) -> int:
     if args.command == "create":
         return cmd_create(args)
     
+    # build-image doesn't require an existing config
+    if args.command == "build-image":
+        return cmd_build_image(args)
+    
     # Load existing configuration for other commands
-    if args.command != "create" and config_path.exists():
+    if config_path.exists():
         bridge = load_cluster(config_path)
-    elif args.command != "create":
+    else:
         print(f"Configuration not found at {config_path}")
         print("Run 'mysql-cluster-bridge create' first")
         return 1
@@ -215,6 +253,8 @@ def run_command(args) -> int:
         return cmd_install_lineairdb(bridge, args.plugin_path)
     elif args.command == "cleanup":
         return cmd_cleanup(bridge, args.all, args.containers_only)
+    elif args.command == "check-image":
+        return cmd_check_image(bridge)
     
     return 0
 
@@ -246,15 +286,23 @@ def cmd_create(args) -> int:
     if args.primary_type == "binary":
         primary_type = NodeType.LOCAL_BINARY
     
+    # Determine whether to use custom or official image
+    use_custom_image = not args.use_official_image
+    
     # Create configuration
     config = create_default_config(
         num_secondaries=args.secondaries,
         primary_type=primary_type,
         remote_hosts=remote_hosts if remote_hosts else None,
         base_dir=args.base_dir,
+        use_custom_image=use_custom_image,
     )
     config.cluster_name = args.cluster_name
     config.mysql_root_password = args.mysql_password
+    
+    # Override docker image if specified
+    if args.docker_image:
+        config.docker_image = args.docker_image
     
     # Create bridge and set up
     bridge = ClusterBridge(config)
@@ -271,12 +319,29 @@ def cmd_create(args) -> int:
         
         if docker_count:
             print(f"    - Docker containers: {docker_count}")
+            docker_image = config.get_docker_image()
+            print(f"    - Docker image: {docker_image}")
+            if config.use_custom_image:
+                print(f"    - Image type: Custom Ubuntu-based")
+            else:
+                print(f"    - Image type: Official MySQL (Oracle Linux)")
         if remote_count:
             print(f"    - Remote machines: {remote_count}")
         
         print("\nNext steps:")
-        print("  1. Start the cluster: mysql-cluster-bridge start")
-        print("  2. Check status: mysql-cluster-bridge status")
+        if docker_count and config.use_custom_image:
+            # Check if custom image exists
+            image_check = bridge.check_docker_image()
+            if not image_check["exists"]:
+                print("  1. Build the Docker image: mysql-cluster-bridge build-image")
+                print("  2. Start the cluster: mysql-cluster-bridge start")
+                print("  3. Check status: mysql-cluster-bridge status")
+            else:
+                print("  1. Start the cluster: mysql-cluster-bridge start")
+                print("  2. Check status: mysql-cluster-bridge status")
+        else:
+            print("  1. Start the cluster: mysql-cluster-bridge start")
+            print("  2. Check status: mysql-cluster-bridge status")
         return 0
     else:
         print("✗ Failed to create cluster configuration")
@@ -544,6 +609,122 @@ def cmd_cleanup(bridge: ClusterBridge, cleanup_all: bool, containers_only: bool)
     
     print("✓ Cleanup completed")
     return 0
+
+
+def cmd_build_image(args) -> int:
+    """Build the custom Ubuntu-based MySQL Docker image."""
+    import subprocess
+    from .config import ClusterConfig
+    
+    print("Building Ubuntu-based MySQL Docker image...")
+    print()
+    
+    # Create a temporary config to get docker settings
+    config = ClusterConfig(
+        base_dir=args.base_dir,
+        docker_dir=args.base_dir / "docker",
+    )
+    
+    # Override tag if specified
+    if args.tag:
+        config.docker_image = args.tag
+    
+    # Check if Dockerfile exists
+    dockerfile_path = config.docker_dir / "Dockerfile.ubuntu"
+    entrypoint_path = config.docker_dir / "docker-entrypoint.sh"
+    
+    if not dockerfile_path.exists():
+        print(f"✗ Dockerfile not found at {dockerfile_path}")
+        print()
+        print("Make sure you have the docker/ directory with:")
+        print("  - Dockerfile.ubuntu")
+        print("  - docker-entrypoint.sh")
+        return 1
+    
+    if not entrypoint_path.exists():
+        print(f"✗ Entrypoint script not found at {entrypoint_path}")
+        return 1
+    
+    print(f"Docker directory: {config.docker_dir}")
+    print(f"Image tag: {config.docker_image}")
+    print(f"No cache: {args.no_cache}")
+    print()
+    
+    # Build the image directly without requiring a full ClusterBridge
+    try:
+        cmd = [
+            "docker", "build",
+            "-t", config.docker_image,
+            "-f", str(dockerfile_path),
+        ]
+        
+        if args.no_cache:
+            cmd.append("--no-cache")
+        
+        cmd.append(str(config.docker_dir))
+        
+        print("Running: " + " ".join(cmd))
+        print()
+        
+        result = subprocess.run(cmd, timeout=1200)  # 20 minutes for build
+        
+        if result.returncode != 0:
+            print(f"✗ Build failed with exit code {result.returncode}")
+            return 1
+        
+        print()
+        print(f"✓ Successfully built image '{config.docker_image}'")
+        
+        # Get image size
+        inspect_result = subprocess.run(
+            ["docker", "image", "inspect", config.docker_image, "--format", "{{.Size}}"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if inspect_result.returncode == 0:
+            size_bytes = int(inspect_result.stdout.strip())
+            size_mb = size_bytes / (1024 * 1024)
+            print(f"  Image size: {size_mb:.2f} MB")
+        
+        print()
+        print("You can now create a cluster with:")
+        print("  python3 -m bridge.cli create --secondaries 3")
+        return 0
+        
+    except subprocess.TimeoutExpired:
+        print("✗ Build timed out after 20 minutes")
+        return 1
+    except Exception as e:
+        print(f"✗ Build failed: {e}")
+        return 1
+
+
+def cmd_check_image(bridge: ClusterBridge) -> int:
+    """Check if the Docker image is available."""
+    print("Checking Docker image...")
+    print()
+    
+    result = bridge.check_docker_image()
+    
+    print(f"Image: {result['image']}")
+    print(f"Type: {'Custom Ubuntu' if result['is_custom'] else 'Official MySQL'}")
+    
+    if result["exists"]:
+        print(f"Status: ✓ Available")
+        if "created" in result:
+            print(f"Created: {result['created']}")
+        if "size" in result:
+            size_mb = result["size"] / (1024 * 1024)
+            print(f"Size: {size_mb:.2f} MB")
+    else:
+        print(f"Status: ✗ Not found")
+        if result.get("is_custom"):
+            print()
+            print("To build the custom image, run:")
+            print("  mysql-cluster-bridge build-image")
+    
+    return 0 if result["exists"] else 1
 
 
 if __name__ == "__main__":
